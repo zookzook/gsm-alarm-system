@@ -26,7 +26,7 @@ void init(void) {
     memset( &database[0], 0, sizeof(SMS_INFO) * 4);
 }
 
-bool sms_send(u_int8_t type, u_int16_t mask, u_int16_t *counter) {
+bool sms_send(uint8_t type, uint16_t mask, uint16_t *counter) {
     
     bool result = false;
     if(type < 4) {
@@ -71,7 +71,7 @@ bool sms_send(u_int8_t type, u_int16_t mask, u_int16_t *counter) {
 }
 
 void sms_send_ping(void) {
-    u_int16_t counter;
+    uint16_t counter;
     if(sms_send(PING_TYPE, 0, &counter)) {
 
         char msg[1024];
@@ -83,7 +83,7 @@ void sms_send_ping(void) {
 }
 
 void sms_send_reboot_message(void) {
-    u_int16_t counter;
+    uint16_t counter;
     if(sms_send(REBOOT_TYPE, 0, &counter)) {
         
         char msg[1024];
@@ -95,7 +95,7 @@ void sms_send_reboot_message(void) {
 }
 
 void sms_send_vin_alert_message(float vin) {
-    u_int16_t counter;
+    uint16_t counter;
     if(sms_send(VIN_ALERT_TYPE, 0, &counter)) {
         char msg[1024];
         if(counter > 1) {
@@ -110,7 +110,7 @@ void sms_send_vin_alert_message(float vin) {
 }
 
 void sms_send_changes_alert_message(D_SENSORS *in) {
-    u_int16_t counter;
+    uint16_t counter;
     
     if(sms_send(CHANGES_ALERT_TYPE, 0, &counter)) {
         char msg[1024];

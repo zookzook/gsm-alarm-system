@@ -14,7 +14,7 @@
 #include <dlfcn.h>
 #include <string.h>
 
-static void *gGSMLibHandle= NULL;
+static void *gGSMLibHandle = NULL;
 
 GSM_STATUS gGSMStatus;
 
@@ -259,17 +259,26 @@ bool gsm_is_active( void ) {
         info( "GSM: unable to get gsm active state %d", ret );
     } // if
     
-    return ret;
+    return state;
 }
 
 bool gsm_unload_module( void ) {
     
-    if( (dlclose( gGSMLibHandle) ) != 0) {
-        info( "GSM: Unable to unload gsm module" );
-    }
-    
-    info( "GSM: module unloaded" );
-    gGSMLibHandle= NULL;
+    if(gGSMLibHandle) {
+        
+        if(gsm_is_active()) {
+            gsm_stop();
+        } // if
+        
+        if( (dlclose( gGSMLibHandle) ) != 0) {
+            info( "GSM: Unable to unload gsm module" );
+        } // if
+        else {
+            info( "GSM: module unloaded" );
+        } // else
+        
+        gGSMLibHandle = NULL;
+    } // if
     
     return true;
 }

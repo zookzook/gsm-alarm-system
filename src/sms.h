@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <stdint.h>
 
 #include "d-sensors.h"
 // SMS-Type
@@ -23,13 +24,13 @@
 typedef struct SMS_INFO_STRUCT {
     
     time_t last_send;       // letzte Nachricht
-    u_int8_t counter;       // Zähler
-    u_int16_t mask;         // optionale Maske für die
-    u_int16_t limit;        // Ruhephase in Sekunden
+    uint8_t counter;       // Zähler
+    uint16_t mask;         // optionale Maske für die
+    uint16_t limit;        // Ruhephase in Sekunden
     
 } SMS_INFO;
 
-bool sms_send(u_int8_t type, u_int16_t mask, u_int16_t *counter);
+bool sms_send(uint8_t type, uint16_t mask, uint16_t *counter);
 
 void sms_send_ping(void);
 void sms_send_reboot_message(void);

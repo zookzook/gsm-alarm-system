@@ -9,9 +9,9 @@
 #define watchdog_h
 
 #include <stdio.h>
+#include <stdbool.h>
 
-void wd_init(void);
+bool wd_init(void);
 void wd_ping(void);
-void wd_shutdown(void);
 
 #endif /* watchdog_h */

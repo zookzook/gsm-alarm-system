@@ -6,7 +6,7 @@
 #include "owa4x/owerrors.h"
 #include "owa4x/IOs_ModuleDefs.h"
 
-static void *gIOLibHandle;
+static void *gIOLibHandle = NULL;
 
 int (*FncIO_Initialize)(void);
 int (*FncIO_Start)(void);
@@ -76,11 +76,14 @@ bool load_io_module( void ) {
 
 void unload_io_module() {
     
-    if( (dlclose( gIOLibHandle) ) != 0) {
-        info( "Unable to unload io module" );
-    }
-    
-    info( "IO-Module unloaded" );
+    if(gIOLibHandle) {
+        if((dlclose(gIOLibHandle)) != 0) {
+            info( "Unable to unload io module" );
+        } // if
+        else{
+            info( "IO-Module unloaded" );
+        } // else
+    } // if
 }
 
 bool io_read_pin( unsigned char pin, bool *out ) {

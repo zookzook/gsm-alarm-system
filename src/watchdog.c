@@ -1,18 +1,11 @@
-//
-//  watchdog.c
-//  gsm-alarm
-//
-//  Created by Michael Maier on 20.07.19.
-//
-
 #include "watchdog.h"
 #include "logger.h"
+#include "notify.h"
 
 #include <stdlib.h>
 #include <time.h>
-#include <systemd/sd-daemon.h>
 
-void wd_init(void) {
+bool wd_init(void) {
     char *wdtTimer = getenv("WATCHDOG_USEC");
     if(!wdtTimer) {
         info("WD not found!");
@@ -20,6 +13,8 @@ void wd_init(void) {
     else {
         info("WD found %s", wdtTimer);
     } // else
+    
+    return wdtTimer != NULL;
 }
 
 void wd_ping(void) {
@@ -27,24 +22,8 @@ void wd_ping(void) {
     static time_t last = 0;
     
     time_t now = time(NULL);
-    
-    if(last == 0) {
+    if(last == 0 || (difftime(time(NULL), last) > 15)) {
+        notify_watchdog();
         last = now;
-    }
-    
-    if(difftime(time(NULL), last) > 15) {
-        
-        if (sd_notify(0, "WATCHDOG=1") < 0) {
-            info("Error notifying watchdog service");
-        }
-        else {
-            info("Ping");
-        }
-
-        last = now;
-    }
-    
-}
-
-void wd_shutdown(void) {
+    } // if
 }

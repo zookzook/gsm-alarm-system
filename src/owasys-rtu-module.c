@@ -18,7 +18,7 @@
 #include "owa4x/owerrors.h"
 #include "owa4x/RTUControlDefs.h"
 
-static void *gRTULibHandle;
+static void *gRTULibHandle = NULL;
 
 int (*FncRTUControl_Initialize)(void *);
 int (*FncRTUControl_Start)(void);
@@ -69,25 +69,9 @@ bool load_rtu_module( void ) {
 
     int result = NO_ERROR;
     
-    time_t s = time(NULL);
-    
-    bool running = true;
-    while(running) {
-        
-        info("RTU: Try to start control");
-        result = (*FncRTUControl_Initialize)(NULL);
-        if(result == NO_ERROR) {
-            running = false;
-        } // if
-        else {
-            sleep(10);
-            wd_ping();
-        } // else
-        
-        if(difftime(time(NULL), s) > 60) {
-            info("Unable to start RTU");
-            return false;
-        }
+    if( ( result = (*FncRTUControl_Initialize)(NULL)) != NO_ERROR) {
+        info("RTU: error %d in FncRTUControl_Initialize()", result);
+        return false;
     }
     
     if( ( result = (*FncRTUControl_Start)()) != NO_ERROR) {
@@ -102,11 +86,13 @@ bool load_rtu_module( void ) {
 
 void unload_rtu_module( void ) {
     
-    if( (dlclose( gRTULibHandle) ) != 0) {
-        info( "RTU: unable to unload rtu module" );
-    }
-    
-    info( "RTU: module unloaded" );
+    if(gRTULibHandle) {
+        if( (dlclose( gRTULibHandle) ) != 0) {
+            info( "RTU: unable to unload rtu module" );
+        }
+        
+        info( "RTU: module unloaded" );
+    } // if 
 }
 
 float rtu_get_vin( void ) {

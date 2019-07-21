@@ -10,7 +10,7 @@
 #include "owasys-io-module.h"
 #include "owasys-rtu-module.h"
 #include "watchdog.h"
-#include "daemon.h"
+#include "main.h"
 
 #include <unistd.h>
 #include <time.h>
@@ -117,7 +117,6 @@ int sensors_running_loop(void) {
     new = current;
     
     while(gContinueRunning) {
-
 
         usleep(500);
 

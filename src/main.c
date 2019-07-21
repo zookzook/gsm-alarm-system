@@ -1,17 +1,72 @@
-#include "daemon.h"
 #include "owasys-io-module.h"
 #include "owasys-rtu-module.h"
 #include "owasys-gsm-module.h"
 #include "logger.h"
 #include "d-sensors.h"
 #include "watchdog.h"
+#include "notify.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/reboot.h>
 #include <signal.h>
-#include <systemd/sd-daemon.h>
+
+volatile bool gContinueRunning;
+
+void sig_handler(int signo) {
+    if (signo == SIGINT) {
+        info("Received SIGINT...exiting!");
+        gContinueRunning= false;
+    } // if
+    else
+        if( signo == SIGTERM ) {
+            info("Received SIGTERM...exiting!");
+            gContinueRunning= false;
+        } // if
+}
+
+bool init_all(void) {
+    
+    if(!wd_init())
+        return false;
+    
+    if (signal(SIGINT, sig_handler) == SIG_ERR) {
+        info( "Unable to init sig_handler" );
+        return false;
+    } // if
+    if (signal(SIGTERM, sig_handler) == SIG_ERR) {
+        info( "Unable to init sig_handler" );
+        return false;
+    } // if
+    
+    wd_ping();
+    
+    if(!load_rtu_module()) {
+        return false;
+    } // if
+    if(!load_io_module()) {
+        return false;
+    } // if
+    if(!gsm_load_module()){
+        return false;
+    } // if
+    
+    return true;
+}
+void reboot_now(void) {
+    
+    sync();
+    if(reboot(RB_AUTOBOOT) != 0) {
+        info("Unable to reboot");
+    }
+}
+
+void loop(void) {
+    
+    gContinueRunning = true;
+    sensors_running_loop();
+}
 
 void send_sms() {
     gsm_init();
@@ -33,65 +88,33 @@ void send_sms() {
 
 }
 
+void cleanup(void) {
+    unload_io_module();
+    gsm_unload_module();
+    unload_rtu_module();
+}
 
 int main (int argc, char *argv[]) {
     
+    int result = EXIT_FAILURE;
+    
     setbuf(stdout, NULL);
     
-    // waiting for rtu system
     info("Starting GSM Alarm System");
 
-    bool dontWait = false;
-    bool fork = false;
-    
-    int opt;
-    while ((opt = getopt (argc, argv, "sf")) != -1)  {
-        switch (opt) {
-            case 's':
-                dontWait = true;
-                break;
-            case 'f':
-                fork = true;
-                break;
-        }
-    }
-    
-    if(fork) {
-        if(!dontWait) {
-            info("Waiting for 30s");
-            sleep(30);
-        } // if
-        daemonize();
-    }
-    else {
-
-        wd_init();
-        
-        if (sd_notify(0, "READY=1")<0){
-            info("Systemd WD startup error");
-        } // if
-        else {
-            info("Systemd WD started");
-        } // else
-        
+    if(init_all()) {
+        notify_ready();
         loop();
-        
-        if (sd_notify(0, "STOPPING=1")<0){
-            info("Error stopping watchdog service");
-        }
-        
-        info("Finished");
-
-    }
+        notify_stopping();
+        result = EXIT_SUCCESS;
+    } // if
+    else {
+        notify_failure();
+        result = EXIT_FAILURE;
+    } // else
     
+    cleanup();
     
-    // reboot
+    exit(result);
 }
 
-void reboot_now(void) {
-    
-    sync();
-    if(reboot(RB_AUTOBOOT) != 0) {
-        info("Unable to reboot");
-    }
-}
