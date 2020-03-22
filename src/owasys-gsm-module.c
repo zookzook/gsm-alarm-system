@@ -9,49 +9,39 @@
 #include "logger.h"
 #include "owa4x/owcomdefs.h"
 #include "owa4x/owerrors.h"
-#include "owa4x/GSM_ModuleDefs.h"
+#include "commands.h"
 
 #include <dlfcn.h>
 #include <string.h>
+#include <stdlib.h>
+#include <semaphore.h>
+#include <pthread.h>
+#include <ctype.h>
+#include <stdint.h>
+
+#define MAX_EVENTS 50
+
+static gsmEvents_s buffer[MAX_EVENTS];
+static int         writeIndex = 0;
+static int         readIndex = 0;
+static sem_t       sem;
+static bool        keepRunning = true;
+static pthread_t   workerThread;
 
 static void *gGSMLibHandle = NULL;
 
-GSM_STATUS gGSMStatus;
-
-int ( *FncGSM_Initialize)  ( void*);
-int ( *FncGSM_IsActive)    ( int*);
-int ( *FncGSM_Finalize)    ( void);
-int ( *FncGSM_Start)       ( void);
-int ( *FncGSM_GetVersion)  ( unsigned char*);
+int ( *FncGSM_Initialize)   ( void*);
+int ( *FncGSM_IsActive)     ( int*);
+int ( *FncGSM_Finalize)     ( void);
+int ( *FncGSM_Start)        ( void);
+int ( *FncGSM_GetVersion)   ( unsigned char*);
 int ( *FncGSM_GetSignalStrength)( unsigned char *wSignalStrength );
-int ( *FncGSM_GetIMEI)  ( char*, int);
-int ( *FncGSM_SendSMS)(unsigned char*, unsigned char*, char);
+int ( *FncGSM_GetIMEI)      (char*, int);
+int ( *FncGSM_SendSMS)      (unsigned char*, unsigned char*, char);
+int (*FncGSM_ReadSMS)       (SMS_s *, unsigned char *,char,char);
+int (*FncGSM_DeleteSMS)     (char, char);
+int (*FncGSM_SMSIndications)(int);
 
-static void gsm_status_network( bool network ) {
-    
-    if( network != gGSMStatus.network ) {
-        gGSMStatus.network= network;
-        info( "GSM: network = %s", gGSMStatus.network ? "yes" : "no" );
-    } // if
-}
-
-static void gsm_status_signal( bool signal ) {
-    
-    if( signal != gGSMStatus.signal ) {
-        gGSMStatus.signal= signal;
-        info( "GSM: signal = %s", gGSMStatus.signal ? "yes" : "no" );
-    } // if
-    
-}
-
-static void gsm_status_failure( bool failure ) {
-    
-    if( failure != gGSMStatus.failure ) {
-        gGSMStatus.failure= failure;
-        info( "GSM: failure = %s\n", gGSMStatus.failure ? "yes" : "no" );
-    } // if
-    
-}
 
 static bool gsm_load_generic_functions( void ) {
     
@@ -97,115 +87,273 @@ static bool gsm_load_generic_functions( void ) {
     
     FncGSM_SendSMS = (int(*)(unsigned char*, unsigned char*, char)) dlsym( gGSMLibHandle, "GSM_SendSMS");
     if( dlerror() != NULL) {
-        info( "No GSM_WriteSMSToMemory found...\n");
+        info( "No GSM_SendSMS found...\n");
+        result= false;
+    }
+    
+    FncGSM_ReadSMS = (int(*)(SMS_s *, unsigned char *,char,char)) dlsym( gGSMLibHandle, "GSM_ReadSMS");
+    if( dlerror() != NULL) {
+        info( "No GSM_ReadSMS found...\n");
+        result= false;
+    }
+    
+    FncGSM_DeleteSMS = (int(*)(char,char)) dlsym( gGSMLibHandle, "GSM_DeleteSMS");
+    if( dlerror() != NULL) {
+        info( "No GSM_DeleteSMS found...\n");
+        result= false;
+    }
+    
+    
+    FncGSM_SMSIndications = (int(*)(int)) dlsym( gGSMLibHandle, "GSM_SMSIndications");
+    if( dlerror() != NULL) {
+        info( "No GSM_SMSIndications found...\n");
         result= false;
     }
     
     return result;
 }
 
-/**
- *
- * GSM_NO_SIGNAL = 0: NO event
- * GSM_RING_VOICE: Incoming Voice call
- * GSM_RING_DATA: Incoming Data Call
- * GSM_CALL_RELEASED: Call released
- * GSM_FAILURE: GSM module failure. Restart it!!!!
- *
- * - 0: NO_NETWORK
- * - 1: HOME_REGISTERED
- * - 2: ROAMING_REGISTERED( usually abroad)
- * - 3: SOS_ONLY
- *
- * - 0: GPRS_NO_NETWORK
- * - 1: GPRS_REGISTERED
- * - 2: GPRS_SEARCHING
- * - 4: UNKNOWN (No further information: Treat it as No Network)
- * - 5: GPRS_REGISTERED_ROAM
- *
- */
-static void gsm_event_handler( gsmEvents_s *pToEvent) {
+
+static void gsm_event_handler(gsmEvents_s *pToEvent) {
     
-    switch( pToEvent->gsmEventType ) {
-        
-        case GSM_NO_SIGNAL:
-            info( "GSM: no gsm signal" );
-            gsm_status_signal( false );
-            break;
-        
-        case GSM_FAILURE:
-            info( "GSM: failure" );
-            gsm_status_signal( false );
-            break;
-        
-        case GSM_COVERAGE:
-            switch( pToEvent->evBuffer[ 0 ] ) {
-                    
-                case 0:
-                    info( "GSM: no gsm network" );
-                    gsm_status_signal( false );
-                    break;
-
-                case 1:
-                    info( "GSM: gsm registered" );
-                    gsm_status_signal( true );
-                    break;
-
-                default:
-                    info( "GSM: gsm coverage: %d", pToEvent->evBuffer[ 0] );
-                    break;
-            }
-            break;
-            
-        case GSM_GPRS_COVERAGE:
-            switch( pToEvent->evBuffer[ 0 ] ) {
-                    
-                case 0:
-                    info( "GSM: no gprs network" );
-                    gsm_status_network( false );
-                    break;
-                    
-                case 1:
-                    info( "GSM: gprs network registered" );
-                    gsm_status_network( true );
-                    break;
-
-                case 2:
-                    info( "GSM: gprs network searching" );
-                    gsm_status_network( false );
-                    break;
-
-                case 4:
-                    info( "GSM: gprs network unknown" );
-                    gsm_status_network( false );
-                    break;
-
-                case 5:
-                    info( "GSM: gprs network roaming registered" );
-                    gsm_status_network( true );
-                    break;
-                    
-                default:
-                    info( "GSM: gprs coverage: %d", pToEvent->evBuffer[ 0] );
-                    break;
-            }
-            
-            break;
-        case GSM_BOARD_TEMP:
-            info( "GSM: board temperatur %d", pToEvent->evBuffer[ 0] );
-            break;
-            
-        case GSM_HIGHER_TEMP:
-            info( "GSM: higher temperatur %d", pToEvent->evBuffer[ 0] );
-            break;
-
-        default:
-            info( "GSM: misc event :%d, %d", pToEvent->gsmEventType, pToEvent->evBuffer[ 0] );
-            break;
-
+    int auxi = writeIndex + 1;
+    
+    buffer[writeIndex] = *pToEvent;
+    if( writeIndex == readIndex) {
+        writeIndex = auxi;
+    } else {
+        if( auxi >= MAX_EVENTS) {
+            auxi = 0;
+        }
+        if( auxi != readIndex) {
+            writeIndex = auxi;
+        }
     }
     
-    // pToEvent->evHandled= true;
+    if( writeIndex >= MAX_EVENTS) {
+        writeIndex = 0;
+    }
+    
+    sem_post(&sem);
+}
+
+bool is_add_admin(char* sender, char* payload) {
+    
+    char user[80];
+    uint8_t n = sscanf(payload, "admin-add %s", user);
+    if( n == 1) {
+        cmd_add_admin(sender, user);
+    } // if
+    
+    return n == 1;
+}
+
+bool is_remove_admin_cmd(char* sender, char* payload) {
+    
+    char user[80];
+    uint8_t n = sscanf(payload, "admin-remove %s", user);
+    if( n == 1) {
+        cmd_remove_admin(sender, user);
+    } // if
+    
+    return n == 1;
+}
+
+bool is_add_recipient_cmd(char* sender, char* payload) {
+    
+    char user[80];
+    uint8_t n = sscanf(payload, "add %s", user);
+    if( n == 1) {
+        cmd_add_recipient(sender, user);
+    } // if
+    
+    return n == 1;
+}
+
+bool is_remove_recipient_cmd(char* sender, char* payload) {
+    
+    char user[80];
+    uint8_t n = sscanf(payload, "remove %s", user);
+    if( n == 1) {
+        cmd_remove_recipient(sender, user);
+    } // if
+    
+    return n == 1;
+}
+
+void dispatch_sms(SMS_s sms) {
+    info("GSM: SMS(%d): Received %s @:%02d/%02d/%02d,%02d:%02d\n",
+         sms.owIndex, sms.owSA_DA,
+         sms.owSCDateTime.day,sms.owSCDateTime.month,
+         sms.owSCDateTime.year, sms.owSCDateTime.hour,
+         sms.owSCDateTime.minute);
+
+
+    char *p = (char*)sms.owBody;
+    for (; *p; ++p) {
+        *p = tolower(*p);
+    }
+    char *sender = (char*)sms.owSA_DA;
+    
+    p = (char*)sms.owBody;
+    info("GSM: message '%s'", p);
+    if(strcmp(p, "lock") == 0) {
+        cmd_lock(sender);
+    }
+    else if(strcmp(p, "unlock") == 0) {
+        cmd_unlock(sender);
+    }
+    else  if(strcmp(p, "ping") == 0) {
+        cmd_ping(sender);
+    } // if
+    else  if(strcmp(p, "reset") == 0) {
+        cmd_reset(sender);
+    } // if
+    else if(is_add_admin(sender, p)) {
+        info("Adding new admin");
+    }    
+    else if(is_remove_admin_cmd(sender, p)) {
+        info("Removing admin");
+    }
+    else if(is_add_recipient_cmd(sender, p)) {
+        info("Adding new recipient");
+    }
+    else if(is_remove_recipient_cmd(sender, p)) {
+        info("Removing recipient");
+    }
+
+}
+
+void* workerFnc(void *arg) {
+    
+    gsmEvents_s *owEvents;
+    gsmEvents_s LocalEvent;
+    //User Vars.
+    int   retVal;
+
+    //SMS
+    int      index;
+    SMS_s    incomingSMS;
+    unsigned char SMSSize;
+    
+    while(keepRunning){
+        sem_wait(&sem);
+        if( readIndex == writeIndex) {
+            continue;
+        } // if
+        
+        LocalEvent = buffer[readIndex++];
+        owEvents = &LocalEvent;
+        if( readIndex >= MAX_EVENTS) {
+            readIndex = 0;
+        } // if
+        switch (owEvents->gsmEventType){
+            case GSM_NO_SIGNAL:
+                break;
+            case GSM_RING_VOICE:
+            case GSM_RING_DATA:
+                // ringTimes ++;
+                if( owEvents->gsmEventType == GSM_RING_DATA){
+                    info( "OWASYS--> GSM RING DATA signal Phone Number: %s \n", owEvents->evBuffer);
+                } else {
+                    info( "OWASYS--> GSM RING VOICE signal Phone Number: %s \n", owEvents->evBuffer);
+                }
+                break;
+            case GSM_NEW_SMS:
+                index = atoi(owEvents->evBuffer);
+                info( "----------- EVENT: SMS index(%d) received ------------\n", index);
+                retVal = gsm_read_sms(index, &incomingSMS, &SMSSize);
+                if( retVal == NO_ERROR){
+                    dispatch_sms(incomingSMS);
+                }
+                
+                retVal = FncGSM_DeleteSMS(index, 0);
+                if(retVal != NO_ERROR) {
+                    info("GSM: unable to delete sms %d, because of %d", index, retVal);
+                } // if
+                
+                break;
+            case GSM_CALL_RELEASED:
+                // callEnd = TRUE;
+                info( "----------- EVENT: Call Finalized by the peer ------------");
+                info(" \n>>");
+                break;
+            case GSM_RECEIVED_DATA:
+                //gsmReceiveData(fileToReceive);
+                break;
+            case GSM_FAILURE:
+                info( "----------- GSM ERROR ------------");
+                // gsmError = TRUE;
+                break;
+            case GSM_COVERAGE:
+                info( "GSM EVENT--> GSM COVERAGE INFO: %d\n", owEvents->evBuffer[ 0]);
+                break;
+            case GSM_HIGHER_TEMP:
+                info( "GSM EVENT--> GSM HIGHER TEMP. Recommended GSM switch off\n");
+                break;
+            case GSM_STOP_SENDING_DATA:
+                info( "GSM EVENT--> Stop Sending Data.\n");
+                // sendingData = FALSE;
+                break;
+            case GSM_START_SENDING_DATA:
+                info( "GSM EVENT--> Start Sending Data.\n");
+                // sendingData = TRUE;
+                break;
+            case GSM_USSD_INFO:
+                info( "GSM EVENT--> USSD Info --> %s\n", owEvents->evBuffer);
+                break;
+            case GSM_USSD_REPLY:
+                info( "GSM EVENT--> USSD Reply Needed --> %s\n", owEvents->evBuffer);
+                break;
+            case GSM_USSD_ERROR:
+                info( "GSM EVENT--> USSD ERROR --> %s\n", owEvents->evBuffer);
+                break;
+            case GSM_CALL_WAITING:
+                info( "GSM EVENT--> Call Waiting from: %s\n", owEvents->evBuffer);
+                break;
+            case GSM_CONNECTED_LINE:
+                info( "GSM EVENT--> Connected line id %s\n", owEvents->evBuffer);
+                break;
+            case GSM_GPRS_COVERAGE:
+                info( "GSM EVENT--> GPRS COVERAGE INFO: %d\n", owEvents->evBuffer[ 0]);
+                break;
+            case GSM_RING_END:
+                info( "GSM EVENT--> GSM RING END: Call cancelled at the peer\n");
+                break;
+            case GSM_MEM_SMS_FULL:
+                info( "GSM EVENT--> SMS MEMORY IS FULL\n");
+                break;
+            case GSM_MEM_SMS_AVAI:
+                info( "GSM EVENT--> SMS MEMORY IS AVAILABLE\n");
+                break;
+            case GSM_BOARD_TEMP:
+                info( "GSM EVENT--> BOARD TEMPERATURE WARNING!!\n");
+                switch ( owEvents->evBuffer[ 0]){
+                    case 0:
+                        info( "Below lowest temperature limit (immediate GSM switch-off)\n");
+                        break;
+                    case 1:
+                        info( "Below low temperature alert limit\n");
+                        break;
+                    case 2:
+                        info( "Normal operating temperature\n");
+                        break;
+                    case 3:
+                        info( "Above upper temperature alert limit\n");
+                        break;
+                    case 4:
+                        info( "Above uppermost temperature limit (immediate GSM switch-off)\n");
+                        break;
+                    default:
+                        info( "Unknown temperature status\n");
+                        break;
+                }
+                break;
+            default:
+                info( "OWASYS--> Signal Event not found ...%d \n", owEvents->gsmEventType);
+        }
+    }
+    return NULL;
 }
 
 int gsm_init( void ) {
@@ -220,9 +368,44 @@ int gsm_init( void ) {
     return FncGSM_Initialize( &config );
 }
 
-int gsm_start( void ) {
+static void clean_sms_memory(void) {
+    
+    uint8_t i = 0;
+    while(i < 20) {
+        int ret = FncGSM_DeleteSMS(i, 0);
+        if(ret == NO_ERROR) {
+            info("GSM: delete sms %d", i);
+        } // if
+        else {
+            info("GSM: unable to delete sms at pos %d", i);
+        } // else
+        
+        i += 1;
+    }
+}
+
+bool gsm_start(void) {
+    
+    bool result = false;
+    
     info( "GSM: calling FncGSM_Start" );
-    return FncGSM_Start();
+    int ret = FncGSM_Start();
+    if(ret == NO_ERROR) {
+        ret = FncGSM_SMSIndications(1);
+        if(ret != NO_ERROR) {
+            info("GSM: unable to set sms indications, because %d", ret);
+        } // if
+        else {
+            clean_sms_memory();
+            result = true;
+        } // else
+        
+    } // if
+    else {
+        info("GSM: unable to start gsm");
+    } // else
+    
+    return result;
 }
 
 bool gsm_load_module( void ) {
@@ -283,14 +466,6 @@ bool gsm_unload_module( void ) {
     return true;
 }
 
-
-void gsm_dump_values( void ) {
-    
-    info( "gGSMStatus.signal  = %s", gGSMStatus.signal ? "true" : "false" );
-    info( "gGSMStatus.network = %s", gGSMStatus.network ? "true" : "false" );
-    info( "gGSMStatus.failure = %s", gGSMStatus.failure ? "true" : "false" );
-}
-
 int gsm_get_strength( void ) {
     
     unsigned char result= 99;
@@ -337,3 +512,16 @@ int gsm_send_sms( char* destination, char* message) {
     return result;
 }
 
+int gsm_read_sms(int wSMSIndex, SMS_s* wReadSMS, unsigned char *wSMSSize) {
+    return FncGSM_ReadSMS(wReadSMS, wSMSSize, wSMSIndex, 0);
+}
+
+void gsm_start_worker(void) {
+    
+    memset(&buffer, 0x00, sizeof(buffer));
+    writeIndex = 0;
+    readIndex = 0;
+    sem_init(&sem, 0, 0);
+
+    pthread_create(&workerThread, NULL, workerFnc, NULL);
+}

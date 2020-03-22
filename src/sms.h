@@ -10,31 +10,34 @@
 
 #include <stdio.h>
 #include <time.h>
-#include <unistd.h>
 #include <stdint.h>
+#include <stdbool.h>
 
-#include "d-sensors.h"
-// SMS-Type
-
-#define VIN_ALERT_TYPE     0x01
-#define REBOOT_TYPE        0x02
-#define CHANGES_ALERT_TYPE 0x03
-#define PING_TYPE          0x04
+#define SENSOR1 0
+#define SENSOR2 1
+#define SENSOR3 2
+#define SENSOR4 3
+#define SENSOR5 4
+#define SENSOR6 5
+#define PIR1 6
+#define PIR2 7
+#define PIR3 8
+#define VIN_ALERT 9
+#define SMS_LENGTH 10
 
 typedef struct SMS_INFO_STRUCT {
     
-    time_t last_send;       // letzte Nachricht
+    time_t last_send;      // Zeitpunkt
     uint8_t counter;       // Zähler
-    uint16_t mask;         // optionale Maske für die
-    uint16_t limit;        // Ruhephase in Sekunden
     
 } SMS_INFO;
 
-bool sms_send(uint8_t type, uint16_t mask, uint16_t *counter);
+void sms_init(void);
+bool sms_update_counter(uint8_t index);
+void sms_cleanup(void);
 
-void sms_send_ping(void);
-void sms_send_reboot_message(void);
-void sms_send_vin_alert_message(float vin);
-void sms_send_changes_alert_message(D_SENSORS *in);
+void sms_check_counter(time_t now);
+
+void sms_init_pirs(void);
 
 #endif /* sms_h */

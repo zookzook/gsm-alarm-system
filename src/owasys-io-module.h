@@ -15,5 +15,7 @@ bool load_io_module( void );
 void unload_io_module( void );
 bool io_read_pin(unsigned char pin, bool *out);
 bool io_read_all_pin(unsigned short int *out );
+void io_pir_on(void);
+void io_pir_off(void);
 
 #endif /* owasys_io_module_h */

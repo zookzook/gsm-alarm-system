@@ -25,6 +25,7 @@ int (*FncRTUControl_Start)(void);
 int (*FncRTUControl_Finalize)(void);
 int (*FncRTUGetAD_V_IN)(float *);
 int (*FncRTUEnterStandby)(unsigned long, unsigned long);
+int (*FncRTUGetAD_VBAT_MAIN)(float *);
 
 static void load_rtu_functions( void ) {
     
@@ -51,6 +52,10 @@ static void load_rtu_functions( void ) {
     FncRTUEnterStandby = (int(*)(unsigned long, unsigned long))dlsym( gRTULibHandle, "RTUEnterStandby");
     if( dlerror() != NULL) {
         info( "No RTUEnterStandby() found");
+    }
+    FncRTUGetAD_VBAT_MAIN = (int(*)(float*))dlsym( gRTULibHandle, "RTUGetAD_VBAT_MAIN");
+    if( dlerror() != NULL) {
+        info( "No RTUGetAD_VBAT_MAIN() found");
     }
     
 }
@@ -102,6 +107,19 @@ float rtu_get_vin( void ) {
     
     if( (ret= FncRTUGetAD_V_IN( &result ) ) != NO_ERROR ) {
         info( "RTU: unable to get vin %d", ret );
+        result = -1.0;
+    } // if
+    
+    return result;
+}
+
+float rtu_get_vbat(void) {
+    
+    int ret= NO_ERROR;
+    float result = 0.0;
+    
+    if( (ret= FncRTUGetAD_VBAT_MAIN( &result ) ) != NO_ERROR ) {
+        info( "RTU: unable to get vbat %d", ret );
         result = -1.0;
     } // if
     

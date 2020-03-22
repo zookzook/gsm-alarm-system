@@ -19,6 +19,7 @@ void unload_rtu_module( void );
 // void rtu_set_time( TUTC_DATE_TIME* t );
 
 float rtu_get_vin(void);
+float rtu_get_vbat(void);
 
 void rtu_standby(void);
 

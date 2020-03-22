@@ -17,7 +17,9 @@ include_directories(owa4x)
 # C-Definitions:
 #
 
-SET (SOURCES main.c logger.c d-sensors.c watchdog.c sms.c notify.c owasys-rtu-module.c owasys-io-module.c owasys-gsm-module.c)
+SET (SOURCES main.c logger.c d-sensors.c watchdog.c sms.c
+             commands.c notify.c loop.c user.c
+             owasys-rtu-module.c owasys-io-module.c owasys-gsm-module.c)
 
 add_executable(gsm-alarm ${SOURCES})
 

@@ -15,6 +15,7 @@ int (*FncIO_IsActive)( int *);
 
 int (*FncDIGIO_Get_DIN)(unsigned char, unsigned char *);
 int (*FncDIGIO_Get_All_DIN)(unsigned short int *);
+int (*FncDIGIO_Set_DOUT)(unsigned char,unsigned char);
 
 static void load_io_generic_functions( void ) {
     
@@ -35,6 +36,12 @@ static void load_io_generic_functions( void ) {
     if( dlerror() != NULL)  {
         info("No DIGIO_Get_All_DIN found");
     }
+    
+    FncDIGIO_Set_DOUT = (int(*)(unsigned char,unsigned char)) dlsym( gIOLibHandle, "DIGIO_Set_DOUT");
+    if( dlerror() != NULL)  {
+        info("No DIGIO_Set_DOUT");
+    }
+    
 }
 
 static void load_io_functions( void ) {
@@ -111,5 +118,19 @@ bool io_read_all_pin(unsigned short int *out ) {
     else {
         info( "Unable to read all pins, because of %d", retVal );
         return false;
+    }
+}
+
+void io_pir_on(void) {
+    int ret = FncDIGIO_Set_DOUT(9, true);
+    if(ret != NO_ERROR) {
+        info("IO: Unable to set output of 9 to HIGH");
+    }
+}
+
+void io_pir_off(void) {
+    int ret = FncDIGIO_Set_DOUT(9, false);
+    if(ret != NO_ERROR) {
+        info("IO: Unable to set output of 9 to LOW");
     }
 }

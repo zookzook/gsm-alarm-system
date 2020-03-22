@@ -10,6 +10,4 @@
 
 #include <stdbool.h>
 
-volatile bool gContinueRunning;
-
 #endif /* main_h */
